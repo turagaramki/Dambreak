@@ -14,6 +14,7 @@ from pysph.sph.basic_equations import XSPHCorrection, ContinuityEquation
 from pysph.sph.wc.basic import TaitEOS, MomentumEquation
 
 from pysph.solver.application import Application
+from pysph.sph.scheme import WCSPHScheme
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -47,7 +48,7 @@ def Geometry():
 
     print ("Number of Solid particles are %d" %wall.get_number_of_particles())
 
-    x,y=np.mgrid[-4.8:-2.5:dx,-4.8:-0.9:dx]
+    x,y=np.mgrid[-4.9:-2.9:dx,-4.9:-0.9:dx]
     xf=x.ravel()
     yf=y.ravel()
 
@@ -67,7 +68,12 @@ class DamBreak(Application):
 
     def initialize(self):
         self.co=np.sqrt(2*9.81*3)
-        self.alpha=0.5
+        self.alpha=0.3
+
+        self.ro = 1000
+        self.hdx = 1.3
+        self.dx = 0.075
+        self.gamma=7.0
 
     def create_particles(self):
         """ Create particles"""
@@ -80,45 +86,20 @@ class DamBreak(Application):
         plt.show()
         return [fluid,wall]
 
-    def create_solver(self):
-        kernel=CubicSpline(dim=2)
-        integrator=EPECIntegrator(fluid=WCSPHStep(),wall=WCSPHStep())
-
-        dt=5e-4
-        tf=10.0
-        solver=Solver(kernel=kernel,dim=2,integrator=integrator,dt=dt,tf=tf)
-
-        return solver
-
-    def create_equations(self):
-        equations = [
-            Group(
-                equations=[
-                    TaitEOS(
-                        dest='fluid', sources=None, rho0=1000,
-                        c0=self.co, gamma=7.0
-                    ),
-                    TaitEOS(
-                        dest='wall', sources=None, rho0=1000,
-                        c0=self.co, gamma=7.0
-                    ),
-                ],
-                real=False
-            ),
-            Group(equations=[
-                ContinuityEquation(dest='fluid',  sources=['fluid', 'wall']),
-                ContinuityEquation(dest='wall',  sources=['fluid', 'wall']),
-
-                MomentumEquation(
-                    dest='fluid', sources=['fluid', 'wall'],
-                    alpha=self.alpha, beta=0.0, c0=self.co, gy=-9.81
-                ),
-
-                XSPHCorrection(dest='fluid', sources=['fluid']),
-
-            ]),
-        ]
-        return equations
+    def create_scheme(self):
+        s = WCSPHScheme(
+            ['fluid'], ['wall'], dim=2, rho0=self.ro, c0=self.co,
+            h0=self.dx*self.hdx, hdx=self.hdx, gy=-9.81, alpha=self.alpha, beta=0.0, gamma=self.gamma
+            # hg_correction=True, tensile_correction=True
+        )
+        kernel = CubicSpline(dim=2)
+        dt = 5e-4; tf = 4
+        s.configure_solver(
+            kernel=kernel, integrator_cls=EPECIntegrator, dt=dt, tf=tf,
+            adaptive_timestep=True, cfl=0.3, n_damp=50
+           # output_at_times=[0.0008, 0.0038]
+        )
+        return s
 
 if __name__=='__main__':
     app=DamBreak()
